@@ -110,6 +110,8 @@ class PreviewMetalView: MTKView {
         textureCache = nil
     }
     
+    
+    
     private func setupTransform(width: Int, height: Int, mirroring: Bool, rotation: Rotation) {
         var scaleX: Float = 1.0
         var scaleY: Float = 1.0
@@ -294,7 +296,16 @@ class PreviewMetalView: MTKView {
         if textureCache == nil {
             createTextureCache()
         }
+        
+        var textureCache: CVMetalTextureCache?
+        let status = CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, metalDevice, nil, &textureCache)
+        if status != kCVReturnSuccess {
+            print("Failed to create texture cache")
+            return
+        }
         var cvTextureOut: CVMetalTexture?
+    
+        
         CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault,
                                                   textureCache!,
                                                   previewPixelBuffer,
@@ -304,9 +315,23 @@ class PreviewMetalView: MTKView {
                                                   height,
                                                   0,
                                                   &cvTextureOut)
-        guard let cvTexture = cvTextureOut, let texture = CVMetalTextureGetTexture(cvTexture) else {
-            print("Failed to create preview texture")
-            
+        
+//        guard let cvTexture = cvTextureOut, let texture = CVMetalTextureGetTexture(cvTexture) else {
+//            print("Failed to create preview texture")
+//            
+//            CVMetalTextureCacheFlush(textureCache!, 0)
+//            return
+//        }
+//        
+        
+        guard let cvTexture = cvTextureOut else {
+            print("cvTextureOut is nil")
+            CVMetalTextureCacheFlush(textureCache!, 0)
+            return
+        }
+
+        guard let texture = CVMetalTextureGetTexture(cvTexture) else {
+            print("Failed to get Metal texture from CVMetalTexture")
             CVMetalTextureCacheFlush(textureCache!, 0)
             return
         }

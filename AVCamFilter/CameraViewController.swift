@@ -126,7 +126,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVC
 
     
     override func viewDidLoad() {
-//        super.viewDidLoad()
+        super.viewDidLoad()
         
         // Disable UI. The UI is enabled if and only if the session starts running.
         cameraButton.isEnabled = false
@@ -156,6 +156,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVC
         let rightSwipeGesture = UISwipeGestureRecognizer(target: self, action: #selector(changeFilterSwipe))
         rightSwipeGesture.direction = .right
         previewView.addGestureRecognizer(rightSwipeGesture)
+        self.processStaticImage();
         
         // Check video authorization status, video access is required
 //        switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -193,7 +194,7 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVC
 //        sessionQueue.async {
 //            self.configureSession()
 //        }
-        self.processStaticImage();
+       
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -1077,43 +1078,54 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVC
         processVideo(sampleBuffer: sampleBuffer)
     }
     
-    func pixelBuffer(from image: UIImage) -> CVPixelBuffer? {
-        guard let cgImage = image.cgImage else { return nil }
-        
+    func pixelBuffer(from image: UIImage) -> CVImageBuffer? {
+        guard let cgImage = image.cgImage else {
+            return nil
+        }
+
         let width = cgImage.width
         let height = cgImage.height
         let attrs = [
             kCVPixelBufferCGImageCompatibilityKey: kCFBooleanTrue!,
             kCVPixelBufferCGBitmapContextCompatibilityKey: kCFBooleanTrue!
         ] as CFDictionary
-        
+
         var pixelBuffer: CVPixelBuffer?
         let status = CVPixelBufferCreate(
             kCFAllocatorDefault, width, height,
             kCVPixelFormatType_32BGRA, attrs,
             &pixelBuffer
         )
-        
+
         guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
             return nil
         }
-        
+
         CVPixelBufferLockBaseAddress(buffer, .init(rawValue: 0))
         let pixelData = CVPixelBufferGetBaseAddress(buffer)
-        
-        let context = CGContext(
-            data: pixelData,
-            width: width, height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-        )
-        
-        context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let context = CGContext(
+              data: pixelData,
+              width: width, height: height,
+              bitsPerComponent: 8,
+              bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+              space: CGColorSpaceCreateDeviceRGB(),
+              bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+          ) else {
+              print("Failed to create CGContext")
+              CVPixelBufferUnlockBaseAddress(buffer, .init(rawValue: 0))
+              return nil
+          }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
         CVPixelBufferUnlockBaseAddress(buffer, .init(rawValue: 0))
-        
-        return buffer
+
+        if CVPixelBufferGetPixelFormatType(buffer) != kCVPixelFormatType_32BGRA {
+            print("Incorrect pixel buffer format")
+        }
+
+        // Return the pixel buffer as a CVImageBuffer
+        return buffer as CVImageBuffer
     }
     
     func processVideo(sampleBuffer: CMSampleBuffer) {
@@ -1137,8 +1149,8 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVC
         var finalVideoPixelBuffer = testPixelBuffer
         
         var formatDescription: CMFormatDescription?
-        let width = CVPixelBufferGetWidth(testPixelBuffer)
-        let height = CVPixelBufferGetHeight(testPixelBuffer)
+        _ = CVPixelBufferGetWidth(testPixelBuffer)
+        _ = CVPixelBufferGetHeight(testPixelBuffer)
         let status = CMVideoFormatDescriptionCreateForImageBuffer(
             allocator: kCFAllocatorDefault,
             imageBuffer: testPixelBuffer,
@@ -1239,6 +1251,34 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVC
     }
     
     // MARK: - Video + Depth Output Synchronizer Delegate
+    
+    func createMetalTexture(from image: UIImage, metalDevice: MTLDevice, textureCache: CVMetalTextureCache?) -> CVMetalTexture? {
+        guard let pixelBuffer = pixelBuffer(from: image) else {
+            print("Failed to create pixel buffer from image")
+            return nil
+        }
+        
+        var metalTexture: CVMetalTexture?
+        
+        // Create the Metal texture from the pixel buffer
+        let result = CVMetalTextureCacheCreateTextureFromImage(
+            kCFAllocatorDefault, textureCache!,
+            pixelBuffer,
+            nil, // Optional: You can specify the texture attributes here
+            .bgra8Unorm, // Pixel format (32-bit BGRA)
+            CVPixelBufferGetWidth(pixelBuffer),
+            CVPixelBufferGetHeight(pixelBuffer),
+            0, // Mipmap level (0 for the base level)
+            &metalTexture
+        )
+        
+        if result != kCVReturnSuccess, let metalTexture = metalTexture {
+            print("Failed to create Metal texture")
+            return nil
+        }
+        
+        return metalTexture
+    }
     
     func dataOutputSynchronizer(_ synchronizer: AVCaptureDataOutputSynchronizer, didOutput synchronizedDataCollection: AVCaptureSynchronizedDataCollection) {
         
