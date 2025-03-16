@@ -1,17 +1,18 @@
-/*
-See LICENSE folder for this sample’s licensing information.
-
-Abstract:
-The rosy-tinted filter renderer, implemented with Metal.
-*/
+//
+//  LightMetalRenderer.swift
+//  AVCamFilter
+//
+//  Created by Xiaowen Yuan on 3/15/25.
+//  Copyright © 2025 Apple. All rights reserved.
+//
 
 import CoreMedia
 import CoreVideo
 import Metal
 
-class RosyMetalRenderer: FilterRenderer {
+class LightMetalRenderer: FilterRenderer {
     
-    var description: String = "Rosy (Metal)"
+    var description: String = "Light (Metal)"
     
     var isPrepared = false
     
@@ -23,9 +24,13 @@ class RosyMetalRenderer: FilterRenderer {
     
     private let metalDevice = MTLCreateSystemDefaultDevice()!
     
-    private var computePipelineState: MTLComputePipelineState?
+    private var renderPipelineState: MTLRenderPipelineState?
     
     private var textureCache: CVMetalTextureCache!
+    
+    private var vertexBuffer: MTLBuffer?
+
+    private var inputTexture: MTLTexture!
     
     private lazy var commandQueue: MTLCommandQueue? = {
         return self.metalDevice.makeCommandQueue()
@@ -33,13 +38,43 @@ class RosyMetalRenderer: FilterRenderer {
     
     required init() {
         let defaultLibrary = metalDevice.makeDefaultLibrary()!
-        let kernelFunction = defaultLibrary.makeFunction(name: "rosyEffect")
-        do {
-            computePipelineState = try metalDevice.makeComputePipelineState(function: kernelFunction!)
-        } catch {
-            print("Could not create pipeline state: \(error)")
-        }
+        let vertexFunction = defaultLibrary.makeFunction(name: "vertexShader")
+        let fragmentFunction = defaultLibrary.makeFunction(name: "fragmentShader")
+        
+        let pipelineDescriptor = MTLRenderPipelineDescriptor()
+           pipelineDescriptor.vertexFunction = vertexFunction
+           pipelineDescriptor.fragmentFunction = fragmentFunction
+           pipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+           
+       do {
+           renderPipelineState = try metalDevice.makeRenderPipelineState(descriptor: pipelineDescriptor)
+       } catch {
+           print("Failed to create render pipeline state: \(error)")
+       }
+
     }
+    
+    func currentRenderPassDescriptor(outputTexture: MTLTexture) -> MTLRenderPassDescriptor? {
+        // Create a render pass descriptor
+        let descriptor = MTLRenderPassDescriptor()
+        
+        // Set up the color attachment (the texture where the result will be written)
+        let colorAttachment = descriptor.colorAttachments[0]
+        colorAttachment?.texture = outputTexture // The output texture to render into
+        colorAttachment?.loadAction = .clear  // Clear the texture before rendering (optional)
+        colorAttachment?.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1) // Clear to black (optional)
+        colorAttachment?.storeAction = .store // Store the result in the texture after rendering
+        
+        // You can set additional properties here if you need to handle depth or stencil attachments.
+        // For example, if you had a depth texture:
+        // descriptor.depthAttachment.texture = depthTexture
+        // descriptor.depthAttachment.loadAction = .clear
+        // descriptor.depthAttachment.storeAction = .store
+
+        // Return the descriptor to be used for rendering
+        return descriptor
+    }
+
     
     func prepare(with formatDescription: CMFormatDescription, outputRetainedBufferCountHint: Int) {
         reset()
@@ -69,13 +104,8 @@ class RosyMetalRenderer: FilterRenderer {
         isPrepared = false
     }
     
-    /// - Tag: FilterMetalRosy
-    func render(pixelBuffer: CVPixelBuffer) -> CVPixelBuffer? {
-        if !isPrepared {
-            assertionFailure("Invalid state: Not prepared.")
-            return nil
-        }
 
+    func render(pixelBuffer: CVPixelBuffer) -> CVPixelBuffer? {
         var newPixelBuffer: CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, outputPixelBufferPool!, &newPixelBuffer)
         guard let outputPixelBuffer = newPixelBuffer else {
@@ -87,30 +117,24 @@ class RosyMetalRenderer: FilterRenderer {
                 return nil
         }
         
-        // Set up command queue, buffer, and encoder.
+        
+    
         guard let commandQueue = commandQueue,
             let commandBuffer = commandQueue.makeCommandBuffer(),
-            let commandEncoder = commandBuffer.makeComputeCommandEncoder() else {
-                print("Failed to create a Metal command queue.")
-                CVMetalTextureCacheFlush(textureCache!, 0)
-                return nil
-        }
+            let commandBuffer = commandQueue.makeCommandBuffer(),
+            let renderPassDescriptor = currentRenderPassDescriptor(outputTexture: outputTexture),
+            let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else {
+                  return nil
+              }
+
+    
+        renderEncoder.setRenderPipelineState(renderPipelineState!)
+        renderEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
+        renderEncoder.setFragmentTexture(inputTexture, index: 0)
         
-        commandEncoder.label = "Rosy Metal"
-        commandEncoder.setComputePipelineState(computePipelineState!)
-        commandEncoder.setTexture(inputTexture, index: 0)
-        commandEncoder.setTexture(outputTexture, index: 1)
-        
-        // Set up the thread groups.
-        let width = computePipelineState!.threadExecutionWidth
-        let height = computePipelineState!.maxTotalThreadsPerThreadgroup / width
-        let threadsPerThreadgroup = MTLSizeMake(width, height, 1)
-        let threadgroupsPerGrid = MTLSize(width: (inputTexture.width + width - 1) / width,
-                                          height: (inputTexture.height + height - 1) / height,
-                                          depth: 1)
-        commandEncoder.dispatchThreadgroups(threadgroupsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
-        
-        commandEncoder.endEncoding()
+        renderEncoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+      
+        renderEncoder.endEncoding()
         commandBuffer.commit()
         return outputPixelBuffer
     }

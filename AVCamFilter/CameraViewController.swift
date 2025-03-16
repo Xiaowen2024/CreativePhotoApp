@@ -77,9 +77,9 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVC
     
     private let photoOutput = AVCapturePhotoOutput()
     
-    private let filterRenderers: [FilterRenderer] = [RosyMetalRenderer(), GaussianBlurRenderer()]
+    private let filterRenderers: [FilterRenderer] = [RosyMetalRenderer(), GaussianBlurRenderer(), LightMetalRenderer()]
     
-    private let photoRenderers: [FilterRenderer] = [RosyMetalRenderer(), RosyCIRenderer()]
+    private let photoRenderers: [FilterRenderer] = [RosyMetalRenderer(), RosyCIRenderer(), LightMetalRenderer()]
     
     private let videoDepthMixer = VideoMixer()
     
@@ -112,8 +112,21 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVC
     
     // MARK: - View Controller Life Cycle
     
+    func processStaticImage() {
+        guard let image = UIImage(named: "back"),
+              let pixelBuffer = pixelBuffer(from: image) else {
+            print("Failed to create pixel buffer from image")
+            return
+        }
+
+        DispatchQueue.main.async {
+            self.previewView.pixelBuffer = pixelBuffer
+        }
+    }
+
+    
     override func viewDidLoad() {
-        super.viewDidLoad()
+//        super.viewDidLoad()
         
         // Disable UI. The UI is enabled if and only if the session starts running.
         cameraButton.isEnabled = false
@@ -145,28 +158,28 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVC
         previewView.addGestureRecognizer(rightSwipeGesture)
         
         // Check video authorization status, video access is required
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized:
-            // The user has previously granted access to the camera
-            break
-            
-        case .notDetermined:
-            /*
-             The user has not yet been presented with the option to grant video access
-             Suspend the SessionQueue to delay session setup until the access request has completed
-             */
-            sessionQueue.suspend()
-            AVCaptureDevice.requestAccess(for: .video, completionHandler: { granted in
-                if !granted {
-                    self.setupResult = .notAuthorized
-                }
-                self.sessionQueue.resume()
-            })
-            
-        default:
-            // The user has previously denied access
-            setupResult = .notAuthorized
-        }
+//        switch AVCaptureDevice.authorizationStatus(for: .video) {
+//        case .authorized:
+//            // The user has previously granted access to the camera
+//            break
+//            
+//        case .notDetermined:
+//            /*
+//             The user has not yet been presented with the option to grant video access
+//             Suspend the SessionQueue to delay session setup until the access request has completed
+//             */
+//            sessionQueue.suspend()
+//            AVCaptureDevice.requestAccess(for: .video, completionHandler: { granted in
+//                if !granted {
+//                    self.setupResult = .notAuthorized
+//                }
+//                self.sessionQueue.resume()
+//            })
+//            
+//        default:
+//            // The user has previously denied access
+//            setupResult = .notAuthorized
+//        }
         
         /*
          Setup the capture session.
@@ -177,9 +190,10 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVC
          is a blocking call, which can take a long time. Dispatch session setup
          to the sessionQueue so as not to block the main queue, which keeps the UI responsive.
          */
-        sessionQueue.async {
-            self.configureSession()
-        }
+//        sessionQueue.async {
+//            self.configureSession()
+//        }
+        self.processStaticImage();
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -193,85 +207,85 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVC
             showThermalState(state: initialThermalState)
         }
         
-        sessionQueue.async {
-            switch self.setupResult {
-            case .success:
-                self.addObservers()
+//        sessionQueue.async {
+//            switch self.setupResult {
+//            case .success:
+//                self.addObservers()
+//                
+//                if let photoOrientation = AVCaptureVideoOrientation(interfaceOrientation: interfaceOrientation) {
+//                    if let unwrappedPhotoOutputConnection = self.photoOutput.connection(with: .video) {
+//                        unwrappedPhotoOutputConnection.videoOrientation = photoOrientation
+//                    }
+//                }
+//                
+//                if let unwrappedVideoDataOutputConnection = self.videoDataOutput.connection(with: .video) {
+//                    let videoDevicePosition = self.videoInput.device.position
+//                    let rotation = PreviewMetalView.Rotation(with: interfaceOrientation,
+//                                                             videoOrientation: unwrappedVideoDataOutputConnection.videoOrientation,
+//                                                             cameraPosition: videoDevicePosition)
+//                    self.previewView.mirroring = (videoDevicePosition == .front)
+//                    if let rotation = rotation {
+//                        self.previewView.rotation = rotation
+//                    }
+//                }
+//                self.dataOutputQueue.async {
+//                    self.renderingEnabled = true
+//                }
+//                
+//                self.session.startRunning()
+//                self.isSessionRunning = self.session.isRunning
+//                
+//                DispatchQueue.main.async {
+//                    self.updateDepthUIHidden()
+//                }
                 
-                if let photoOrientation = AVCaptureVideoOrientation(interfaceOrientation: interfaceOrientation) {
-                    if let unwrappedPhotoOutputConnection = self.photoOutput.connection(with: .video) {
-                        unwrappedPhotoOutputConnection.videoOrientation = photoOrientation
-                    }
-                }
+//            case .notAuthorized:
+//                DispatchQueue.main.async {
+//                    let message = NSLocalizedString("AVCamFilter doesn't have permission to use the camera, please change privacy settings",
+//                                                    comment: "Alert message when the user has denied access to the camera")
+//                    let actions = [
+//                        UIAlertAction(title: NSLocalizedString("OK", comment: "Alert OK button"),
+//                                      style: .cancel,
+//                                      handler: nil),
+//                        UIAlertAction(title: NSLocalizedString("Settings", comment: "Alert button to open Settings"),
+//                                      style: .`default`,
+//                                      handler: { _ in
+//                                        UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!,
+//                                                                  options: [:],
+//                                                                  completionHandler: nil)
+//                        })
+//                    ]
+//                    
+//                    self.alert(title: "AVCamFilter", message: message, actions: actions)
+//                }
                 
-                if let unwrappedVideoDataOutputConnection = self.videoDataOutput.connection(with: .video) {
-                    let videoDevicePosition = self.videoInput.device.position
-                    let rotation = PreviewMetalView.Rotation(with: interfaceOrientation,
-                                                             videoOrientation: unwrappedVideoDataOutputConnection.videoOrientation,
-                                                             cameraPosition: videoDevicePosition)
-                    self.previewView.mirroring = (videoDevicePosition == .front)
-                    if let rotation = rotation {
-                        self.previewView.rotation = rotation
-                    }
-                }
-                self.dataOutputQueue.async {
-                    self.renderingEnabled = true
-                }
-                
-                self.session.startRunning()
-                self.isSessionRunning = self.session.isRunning
-                
-                DispatchQueue.main.async {
-                    self.updateDepthUIHidden()
-                }
-                
-            case .notAuthorized:
-                DispatchQueue.main.async {
-                    let message = NSLocalizedString("AVCamFilter doesn't have permission to use the camera, please change privacy settings",
-                                                    comment: "Alert message when the user has denied access to the camera")
-                    let actions = [
-                        UIAlertAction(title: NSLocalizedString("OK", comment: "Alert OK button"),
-                                      style: .cancel,
-                                      handler: nil),
-                        UIAlertAction(title: NSLocalizedString("Settings", comment: "Alert button to open Settings"),
-                                      style: .`default`,
-                                      handler: { _ in
-                                        UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!,
-                                                                  options: [:],
-                                                                  completionHandler: nil)
-                        })
-                    ]
-                    
-                    self.alert(title: "AVCamFilter", message: message, actions: actions)
-                }
-                
-            case .configurationFailed:
-                DispatchQueue.main.async {
-                    
-                    let message = NSLocalizedString("Unable to capture media",
-                                                    comment: "Alert message when something goes wrong during capture session configuration")
-                    
-                    self.alert(title: "AVCamFilter",
-                               message: message,
-                               actions: [UIAlertAction(title: NSLocalizedString("OK", comment: "Alert OK button"),
-                                                       style: .cancel,
-                                                       handler: nil)])
-                }
-            }
-        }
+//            case .configurationFailed:
+//                DispatchQueue.main.async {
+//                    
+//                    let message = NSLocalizedString("Unable to capture media",
+//                                                    comment: "Alert message when something goes wrong during capture session configuration")
+//                    
+//                    self.alert(title: "AVCamFilter",
+//                               message: message,
+//                               actions: [UIAlertAction(title: NSLocalizedString("OK", comment: "Alert OK button"),
+//                                                       style: .cancel,
+//                                                       handler: nil)])
+//                }
+//            }
+//        }
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         dataOutputQueue.async {
             self.renderingEnabled = false
         }
-        sessionQueue.async {
-            if self.setupResult == .success {
-                self.session.stopRunning()
-                self.isSessionRunning = self.session.isRunning
-                self.removeObservers()
-            }
-        }
+//        sessionQueue.async {
+//            if self.setupResult == .success {
+//                self.session.stopRunning()
+//                self.isSessionRunning = self.session.isRunning
+//                self.removeObservers()
+//            }
+//        }
         
         super.viewWillDisappear(animated)
     }
@@ -1063,52 +1077,130 @@ class CameraViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVC
         processVideo(sampleBuffer: sampleBuffer)
     }
     
+    func pixelBuffer(from image: UIImage) -> CVPixelBuffer? {
+        guard let cgImage = image.cgImage else { return nil }
+        
+        let width = cgImage.width
+        let height = cgImage.height
+        let attrs = [
+            kCVPixelBufferCGImageCompatibilityKey: kCFBooleanTrue!,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: kCFBooleanTrue!
+        ] as CFDictionary
+        
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault, width, height,
+            kCVPixelFormatType_32BGRA, attrs,
+            &pixelBuffer
+        )
+        
+        guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
+            return nil
+        }
+        
+        CVPixelBufferLockBaseAddress(buffer, .init(rawValue: 0))
+        let pixelData = CVPixelBufferGetBaseAddress(buffer)
+        
+        let context = CGContext(
+            data: pixelData,
+            width: width, height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+        )
+        
+        context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        CVPixelBufferUnlockBaseAddress(buffer, .init(rawValue: 0))
+        
+        return buffer
+    }
+    
     func processVideo(sampleBuffer: CMSampleBuffer) {
         if !renderingEnabled {
             return
         }
         
-        guard let videoPixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
-            let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else {
-                return
+//        guard let videoPixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
+//            let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else {
+//                return
+//        }
+        
+        
+     
+        guard let image = UIImage(named: "back"),
+              let testPixelBuffer = pixelBuffer(from: image) else {
+            print("Failed to create pixel buffer from static image")
+            return
+        }
+
+        var finalVideoPixelBuffer = testPixelBuffer
+        
+        var formatDescription: CMFormatDescription?
+        let width = CVPixelBufferGetWidth(testPixelBuffer)
+        let height = CVPixelBufferGetHeight(testPixelBuffer)
+        let status = CMVideoFormatDescriptionCreateForImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: testPixelBuffer,
+            formatDescriptionOut: &formatDescription
+        )
+
+        guard status == noErr, let formatDesc = formatDescription else {
+            print("Failed to create format description")
+            return
         }
         
-        var finalVideoPixelBuffer = videoPixelBuffer
         if let filter = videoFilter {
-            if !filter.isPrepared {
-                /*
-                 outputRetainedBufferCountHint is the number of pixel buffers the renderer retains. This value informs the renderer
-                 how to size its buffer pool and how many pixel buffers to preallocate. Allow 3 frames of latency to cover the dispatch_async call.
-                 */
-                filter.prepare(with: formatDescription, outputRetainedBufferCountHint: 3)
-            }
-            
-            // Send the pixel buffer through the filter
-            guard let filteredBuffer = filter.render(pixelBuffer: finalVideoPixelBuffer) else {
-                print("Unable to filter video buffer")
-                return
-            }
-            
-            finalVideoPixelBuffer = filteredBuffer
-        }
-        
-        if depthVisualizationEnabled {
-            if !videoDepthMixer.isPrepared {
-                videoDepthMixer.prepare(with: formatDescription, outputRetainedBufferCountHint: 3)
-            }
-            
-            if let depthBuffer = currentDepthPixelBuffer {
+                if !filter.isPrepared {
+                    filter.prepare(with: formatDesc, outputRetainedBufferCountHint: 3)
+                }
                 
-                // Mix the video buffer with the last depth data received.
-                guard let mixedBuffer = videoDepthMixer.mix(videoPixelBuffer: finalVideoPixelBuffer, depthPixelBuffer: depthBuffer) else {
-                    print("Unable to combine video and depth")
+                // Apply Metal shader to static image
+                guard let filteredBuffer = filter.render(pixelBuffer: finalVideoPixelBuffer) else {
+                    print("Unable to filter image buffer")
                     return
                 }
                 
-                finalVideoPixelBuffer = mixedBuffer
+                finalVideoPixelBuffer = filteredBuffer
             }
-        }
-        
+            
+//
+////        var finalVideoPixelBuffer = videoPixelBuffer
+//        if let filter = videoFilter {
+//            if !filter.isPrepared {
+//                /*
+//                 outputRetainedBufferCountHint is the number of pixel buffers the renderer retains. This value informs the renderer
+//                 how to size its buffer pool and how many pixel buffers to preallocate. Allow 3 frames of latency to cover the dispatch_async call.
+//                 */
+//                filter.prepare(with: formatDescription, outputRetainedBufferCountHint: 3)
+//            }
+//            
+//            // Send the pixel buffer through the filter
+//            guard let filteredBuffer = filter.render(pixelBuffer: finalVideoPixelBuffer) else {
+//                print("Unable to filter video buffer")
+//                return
+//            }
+//            
+//            finalVideoPixelBuffer = filteredBuffer
+//        }
+//        
+//        if depthVisualizationEnabled {
+//            if !videoDepthMixer.isPrepared {
+//                videoDepthMixer.prepare(with: formatDescription, outputRetainedBufferCountHint: 3)
+//            }
+//            
+//            if let depthBuffer = currentDepthPixelBuffer {
+//                
+//                // Mix the video buffer with the last depth data received.
+//                guard let mixedBuffer = videoDepthMixer.mix(videoPixelBuffer: finalVideoPixelBuffer, depthPixelBuffer: depthBuffer) else {
+//                    print("Unable to combine video and depth")
+//                    return
+//                }
+//                
+//                finalVideoPixelBuffer = mixedBuffer
+//            }
+//        }
+//        
         previewView.pixelBuffer = finalVideoPixelBuffer
     }
     
